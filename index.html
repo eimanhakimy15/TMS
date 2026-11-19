@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TMS – Task Management System</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%235b9bff'/%3E%3Cstop offset='1' stop-color='%233358e8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Cg fill='none' stroke='white' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round' transform='translate(14 14) scale(1.5)'%3E%3Cpath d='M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z M16 5h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2 M9 14l2 2 4-4'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root{
@@ -351,6 +352,16 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
 .fchip.on{background:var(--c);color:#fff;border-color:var(--c)}
 .fchip.on i{background:#fff}
 .fchip.on em{background:rgba(255,255,255,.25);color:#fff}
+.gbtn{background:#fff;color:#1f1f1f;border:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.06);gap:10px;padding:11px}
+.gbtn:hover{background:#f7f7f9}
+.ghint{font-size:12px;color:var(--faint);margin:8px 0 14px!important}
+.or{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:12px;margin:2px 0 14px}
+.or:before,.or:after{content:"";flex:1;height:1px;background:var(--line)}
+.gstat{display:flex;align-items:center;gap:7px;font-size:11.5px;padding:4px 10px;border-radius:20px;color:var(--sub);background:var(--fill);width:100%;text-align:left}
+.gstat:before{content:"";width:7px;height:7px;border-radius:50%;background:#22c55e;flex:none}
+.gstat.busy:before{background:#f59e0b;animation:pulse 1.1s infinite}
+.gstat.err{color:#ef4444;background:rgba(239,68,68,.1)}
+.gstat.err:before{background:#ef4444}
 /* ---------- Kanban v2: bright columns, richer cards, drag animation ---------- */
 .col{--c:var(--accent);position:relative;overflow:hidden;padding:14px 12px 8px;border-radius:22px;background:color-mix(in srgb,var(--c) 9%,var(--panel));border:1px solid color-mix(in srgb,var(--c) 24%,transparent);transition:background .2s,box-shadow .2s}
 .col:before{content:"";position:absolute;left:0;right:0;top:0;height:5px;background:var(--c)}
@@ -500,6 +511,8 @@ const PRI = { high: 'High', med: 'Medium', low: 'Low' };
 const PRI_W = { high: 0, med: 1, low: 2 };
 
 /* ---------- Storage: localStorage + auto-save ---------- */
+/* Paste your Google OAuth Client ID here to turn on "Continue with Google" + Google Drive storage */
+const GOOGLE_CLIENT_ID = '';
 /* ---- Accounts (stored in this browser) & per-user data ---- */
 const BASE = 'eiman.dashboard.v1', USERS_KEY = 'tms.users', SESS_KEY = 'tms.session';
 const mem = {}; /* fallback if the browser blocks storage (data then lasts until the tab closes) */
@@ -518,7 +531,9 @@ async function ensureDefaultUser() {
   const us = getUsers();
   if (!us.some(u => u.username === 'eiman')) { us.unshift({ name: 'Eiman', username: 'eiman', hash: await hashPw('eiman', 'password') }); setUsers(us); }
 }
-let CUR = lsGet(SESS_KEY) || '', ME = getUsers().find(u => u.username === CUR) || null;
+function gMeStored(c) { try { const m = JSON.parse(lsGet('tms.gme')); return m && m.sub === c ? m : null; } catch (e) { return null; } }
+function isG() { return CUR.startsWith('g_'); }
+let CUR = lsGet(SESS_KEY) || '', ME = getUsers().find(u => u.username === CUR) || gMeStored(CUR);
 if (!ME) CUR = '';
 let KEY = keyFor(CUR || 'eiman');
 let S = CUR ? load() : seed();
@@ -545,7 +560,7 @@ function load() {
   return seed();
 }
 let saveT;
-function save() { clearTimeout(saveT); saveT = setTimeout(flush, 200); }
+function save() { S._mod = Date.now(); clearTimeout(saveT); saveT = setTimeout(flush, 200); if (isG()) schedulePush(); }
 function flush() {
   if (!CUR) return;
   try { snap(); localStorage.setItem(KEY, JSON.stringify(S)); const el = $('#saved'); if (el) el.textContent = 'Auto-saved · ' + new Date().toLocaleTimeString(LOC, { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
@@ -562,9 +577,17 @@ const dbp = new Promise((res, rej) => {
 });
 dbp.catch(() => {});
 const idb = async (mode, fn) => { const db = await dbp; return new Promise((res, rej) => { const t = db.transaction('f', mode), q = fn(t.objectStore('f')); t.oncomplete = () => res(q.result); t.onerror = () => rej(t.error); }); };
-const putFile = (id, blob) => idb('readwrite', s => s.put(blob, id));
-const getFile = id => idb('readonly', s => s.get(id));
-const delFile = id => idb('readwrite', s => s.delete(id));
+const getFileLocal = id => idb('readonly', s => s.get(id));
+const putFile = async (id, blob) => { await idb('readwrite', s => s.put(blob, id)); if (isG()) { S.upq = S.upq || []; S.upq.push(id); schedulePush(); } };
+const getFile = async id => {
+  let b = await getFileLocal(id);
+  if (!b && isG() && S.fmap && S.fmap[id]) { try { b = await (await gf(`${DRIVE}/files/${S.fmap[id]}?alt=media`)).blob(); await idb('readwrite', s => s.put(b, id)); } catch (e) {} }
+  return b;
+};
+const delFile = id => {
+  if (isG()) { S.upq = (S.upq || []).filter(x => x !== id); if (S.fmap && S.fmap[id]) { gf(`${DRIVE}/files/${S.fmap[id]}`, { method: 'DELETE' }).catch(() => {}); delete S.fmap[id]; } }
+  return idb('readwrite', s => s.delete(id));
+};
 const urls = {};
 async function hydrate() {
   for (const el of $$('[data-file]')) {
@@ -677,6 +700,7 @@ function render() {
       ${S.projects.map(p => `<button class="nav ${U.view === 'tasks' && U.project === p.id ? 'on' : ''}" data-act="filterProject" data-id="${p.id}">${glyph(p.icon, p.color)}<span>${esc(p.name)}</span><em class="cnt">${S.tasks.filter(t => t.projectId === p.id && t.status !== 'done').length}</em></button>`).join('')}
       <div class="side-foot">
         ${!S.notice ? `<button class="btn sm" data-act="enableNotice">${ic('bell')}<span>Enable notifications</span></button>` : ''}
+        ${isG() ? gStatHtml() : ''}
         <div class="lrow" style="gap:6px"><button class="btn sm" style="flex:1" data-act="exportData" title="Download a backup file">${ic('down')}<span>Backup</span></button><button class="btn sm" style="flex:1" data-act="pickImport" title="Restore from a backup file">${ic('up')}<span>Restore</span></button></div>
         <div class="saved" id="saved">Auto-save on</div>
         <button class="btn sm" data-act="logout">${ic('out')}<span>Sign out</span></button>
@@ -711,6 +735,7 @@ function renderLogin() {
     <form class="login-card" id="lf" autocomplete="on" novalidate>
       <div class="app-icon">${ic('logo')}</div>
       <h1>Task Management System</h1><p>${reg ? 'Create your TMS account' : 'Sign in to continue'}</p>
+      ${GOOGLE_CLIENT_ID ? `<button type="button" class="btn gbtn full" data-act="googleLogin"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg> Continue with Google</button><p class="ghint">Your data is saved in your own Google Drive.</p><div class="or"><span>or use a device-only account</span></div>` : ''}
       <div class="seg am"><button type="button" class="${reg ? '' : 'on'}" data-mode="login">Sign In</button><button type="button" class="${reg ? 'on' : ''}" data-mode="register">Register</button></div>
       ${reg ? `<label class="field"><span>Name</span><input name="n" autocomplete="name" placeholder="Your full name" autofocus></label>` : ''}
       <label class="field"><span>Username</span><input name="u" autocomplete="username" placeholder="${reg ? 'Choose a username' : 'Enter your username'}" ${reg ? '' : 'autofocus'}></label>
@@ -1037,7 +1062,7 @@ const A = {
   zoom(el) { const u = urls[el.dataset.fid]; if (u) $('#lightbox').innerHTML = `<div class="lb" data-act="closeLb"><img src="${u}" alt=""></div>`; },
   closeLb() { $('#lightbox').innerHTML = ''; },
   pickTaskImg() { $('#imgpick').click(); },
-  exportData,
+  exportData, googleLogin, gSync() { return (gStatus === 'ok' || gStatus === 'busy') ? gPush() : gReconnect(); },
   pickImport() { $('#restorepick').click(); },
   noteProject(el) { S.ui.np = el.dataset.id; save(); render(); },
   pickKeepFiles() { $('#keepfiles').click(); },
@@ -1085,7 +1110,10 @@ const A = {
     save(); const mo = $('.modal'), sc = mo.scrollTop; renderModal(); $('.modal').scrollTop = sc;
   },
   enableNotice,
-  logout() { S.draft = null; S.ui.detail = null; flush(); CUR = ''; ME = null; lsDel(SESS_KEY); S = seed(); S.auth = false; authMode = 'login'; $('#modal').innerHTML = ''; render(); },
+  async logout() {
+    S.draft = null; S.ui.detail = null; flush();
+    if (isG()) { try { if (gStatus !== 'ok') await gPush(); } catch (e) {} if (gStatus === 'ok') lsDel(KEY); gTok = null; gFileId = null; lsDel('tms.gme'); }
+    CUR = ''; ME = null; lsDel(SESS_KEY); S = seed(); S.auth = false; authMode = 'login'; $('#modal').innerHTML = ''; render(); },
   newTask() { S.ui.detail = null; S.draft = { kind: 'task', added: [], removed: [], f: { id: null, title: '', desc: '', projectId: S.ui.project || '', status: 'todo', priority: 'med', due: '', remind: '', links: [], images: [] } }; save(); renderModal(); },
   openTask(el) { if (!S.tasks.some(x => x.id === el.dataset.id)) return; S.ui.detail = el.dataset.id; save(); renderModal(); },
   editTask() { const t = detailTask(); if (!t) return; const f = JSON.parse(JSON.stringify(t)); f.images = f.images || []; S.draft = { kind: 'task', f, added: [], removed: [] }; S.ui.detail = null; save(); renderModal(); },
@@ -1185,6 +1213,91 @@ document.addEventListener('dragover', e => { const z = e.target.closest('.dz'); 
 document.addEventListener('dragleave', e => { const z = e.target.closest('.dz'); if (z) z.classList.remove('over'); });
 document.addEventListener('drop', e => { const z = e.target.closest('.dz'); if (z) { e.preventDefault(); z.classList.remove('over'); addDraftImages([...e.dataTransfer.files]); } });
 
+/* ---------- Google Drive sync (each user's own Drive, hidden appDataFolder) ---------- */
+const DRIVE = 'https://www.googleapis.com/drive/v3', UP = 'https://www.googleapis.com/upload/drive/v3';
+let gTok = null, gExp = 0, gClient = null, gFileId = null, gPushT = null, gBusy = false, gLastChk = 0, gStatus = isG() ? 'off' : 'ok';
+const gReady = () => !!(window.google && google.accounts && google.accounts.oauth2);
+function gInit() {
+  if (gClient) return true; if (!GOOGLE_CLIENT_ID || !gReady()) return false;
+  gClient = google.accounts.oauth2.initTokenClient({ client_id: GOOGLE_CLIENT_ID, scope: 'openid email profile https://www.googleapis.com/auth/drive.appdata', callback: () => {} });
+  return true;
+}
+function gToken(prompt) {
+  return new Promise((res, rej) => {
+    if (!gInit()) return rej(new Error('Google is not ready yet'));
+    gClient.callback = r => r.error ? rej(r) : (gTok = r.access_token, gExp = Date.now() + (r.expires_in - 90) * 1000, res(gTok));
+    gClient.error_callback = e => rej(e);
+    gClient.requestAccessToken({ prompt });
+  });
+}
+async function gf(url, opts = {}) {
+  const t = (gTok && Date.now() < gExp) ? gTok : await gToken('');
+  const r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + t } });
+  if (r.status === 401) { gTok = null; throw new Error('auth'); }
+  if (!r.ok) throw new Error('drive ' + r.status);
+  return r;
+}
+async function gFind(name) { const r = await gf(`${DRIVE}/files?spaces=appDataFolder&q=${encodeURIComponent(`name='${name}'`)}&fields=files(id)`); return (await r.json()).files[0] || null; }
+async function gUpload(name, blob, existingId) {
+  const meta = existingId ? {} : { name, parents: ['appDataFolder'] }, type = blob.type || 'application/octet-stream';
+  if (blob.size > 4e6) {
+    const r = await gf(`${UP}/files${existingId ? '/' + existingId : ''}?uploadType=resumable&fields=id`, { method: existingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': type }, body: JSON.stringify(meta) });
+    const r2 = await fetch(r.headers.get('Location'), { method: 'PUT', headers: { Authorization: 'Bearer ' + gTok }, body: blob });
+    if (!r2.ok) throw new Error('upload'); return (await r2.json()).id;
+  }
+  const b = 'tms' + uid(), body = new Blob([`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: ${type}\r\n\r\n`, blob, `\r\n--${b}--`]);
+  const r = await gf(`${UP}/files${existingId ? '/' + existingId : ''}?uploadType=multipart&fields=id`, { method: existingId ? 'PATCH' : 'POST', headers: { 'Content-Type': `multipart/related; boundary=${b}` }, body });
+  return (await r.json()).id;
+}
+const gStatHtml = () => { const m = { ok: ['Synced to Google Drive', 'ok'], busy: ['Syncing…', 'busy'], dirty: ['Saving to Drive…', 'busy'], err: ['Reconnect to Google Drive', 'err'], off: ['Reconnect to Google Drive', 'err'] }[gStatus]; return `<button class="gstat ${m[1]}" id="gstat" data-act="gSync" title="Your data lives in your Google Drive">${m[0]}</button>`; };
+function gSet(s) { gStatus = s; const el = $('#gstat'); if (el) el.outerHTML = gStatHtml(); }
+function schedulePush() { if (!isG()) return; clearTimeout(gPushT); if (gStatus !== 'busy') gSet('dirty'); gPushT = setTimeout(gPush, 2500); }
+async function gPush() {
+  if (!isG()) return; if (gBusy) return schedulePush();
+  gBusy = true; gSet('busy');
+  try {
+    if (!gTok || Date.now() >= gExp) await gToken('');
+    if (!gFileId) { const f = await gFind('tms-data.json'); gFileId = f ? f.id : null; }
+    S.fmap = S.fmap || {}; S.upq = S.upq || [];
+    for (const id of [...S.upq]) {
+      try { const b = await getFileLocal(id); if (b) S.fmap[id] = await gUpload('f_' + id, b, S.fmap[id]); S.upq = S.upq.filter(x => x !== id); } catch (e) { if (e.message === 'auth') throw e; }
+    }
+    const mod = S._mod = S._mod || Date.now(), payload = JSON.parse(JSON.stringify(S)); payload.draft = null; delete payload.auth;
+    gFileId = await gUpload('tms-data.json', new Blob([JSON.stringify(payload)], { type: 'application/json' }), gFileId);
+    flush();
+    if (S._mod > mod) { gBusy = false; return schedulePush(); }
+    gSet('ok');
+  } catch (e) { gSet('err'); }
+  gBusy = false;
+}
+async function gPull() { const f = await gFind('tms-data.json'); if (!f) return null; gFileId = f.id; return (await gf(`${DRIVE}/files/${f.id}?alt=media`)).json(); }
+async function gCheck() {
+  if (!isG() || !gTok || gBusy || S.draft || Date.now() - gLastChk < 20000) return; gLastChk = Date.now();
+  try {
+    const rem = await gPull();
+    if (rem && (rem._mod || 0) > (S._mod || 0)) { lsSet(KEY, JSON.stringify(rem)); S = load(); S.auth = true; render(); toast('Updated from Google Drive', 'Latest changes loaded.', 'down', '#2f9e6b'); }
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) gCheck(); });
+async function gReconnect() {
+  try { await gToken(''); } catch (e) { return toast('Could not connect', 'Allow the Google popup, then try again.', 'bell', '#e5484d'); }
+  gLastChk = 0; await gCheck(); await gPush();
+}
+async function googleLogin() {
+  try { await gToken('select_account'); } catch (e) { return toast('Google sign-in failed', 'Allow popups for this site and try again.', 'bell', '#e5484d'); }
+  let ui; try { ui = await (await gf('https://www.googleapis.com/oauth2/v3/userinfo')).json(); } catch (e) { return toast('Google sign-in failed', 'Could not read your Google profile.', 'bell', '#e5484d'); }
+  const user = { name: ui.name || ui.email, username: ui.email, google: true, sub: 'g_' + ui.sub, picture: ui.picture };
+  CUR = user.sub; ME = user; lsSet(SESS_KEY, CUR); lsSet('tms.gme', JSON.stringify(user)); KEY = keyFor(CUR); gFileId = null;
+  const hasLocal = !!lsGet(KEY); let remote = null; try { remote = await gPull(); } catch (e) {}
+  if (remote && (!hasLocal || (remote._mod || 0) >= ((JSON.parse(lsGet(KEY)) || {})._mod || 0))) { lsSet(KEY, JSON.stringify(remote)); S = load(); }
+  else if (hasLocal) S = load(); else S = blankSeed();
+  S.auth = true; fresh = true; authMode = 'login'; gSet('ok'); save(); flush(); render();
+  if (!remote) gPush();
+  if ('Notification' in window && Notification.permission === 'granted') S.notice = true;
+  toast('Welcome, ' + user.name.split(' ')[0], remote ? 'Your data was loaded from Google Drive.' : 'Your data will be saved in your Google Drive.', 'check', '#2f9e6b');
+  checkReminders();
+}
+
 /* ---------- Backup / Restore ---------- */
 const blobToURL = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
 async function exportData() {
@@ -1193,7 +1306,7 @@ async function exportData() {
   const data = JSON.parse(JSON.stringify(S)); data.draft = null; data.auth = false;
   const blob = new Blob([JSON.stringify({ app: 'tms', v: 1, user: CUR, exported: Date.now(), data, files })], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `TMS-backup-${CUR}-${today()}.json`; document.body.appendChild(a); a.click(); a.remove();
+  a.download = `TMS-backup-${String((ME && ME.username) || CUR).replace(/[^\w.-]/g, '_')}-${today()}.json`; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   S.lastBackup = Date.now(); save(); render();
   toast('Backup downloaded', 'Keep the file somewhere safe (Drive, USB).', 'down', '#2f9e6b');
