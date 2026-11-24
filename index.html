@@ -426,21 +426,7 @@ a.btn.primary{color:#fff}
 .brand{padding:2px 8px 16px}
 .brand small{display:block;font-size:10.5px;font-weight:500;color:var(--faint);white-space:nowrap}
 
-/* top bar with burger (in normal flow, no floating button) */
-.bar{position:sticky;top:0;z-index:30;display:none;align-items:center;gap:12px;height:58px;margin:0 -34px 8px;padding:0 34px;background:var(--bg)}
-.burger{flex:none;position:relative;width:40px;height:40px;border-radius:12px;background:var(--panel);border:1px solid var(--line);box-shadow:0 1px 2px rgba(20,20,40,.06);transition:background .2s,border-color .2s,transform .2s}
-.burger:hover{border-color:var(--accent);background:var(--accent-soft)}
-.burger:active{transform:scale(.94)}
-.burger i{position:absolute;left:11px;width:18px;height:2px;border-radius:2px;background:var(--text);transition:transform .35s cubic-bezier(.4,0,.2,1),opacity .2s,top .35s cubic-bezier(.4,0,.2,1)}
-.burger i:nth-child(1){top:13px}
-.burger i:nth-child(2){top:19px}
-.burger i:nth-child(3){top:25px}
-.app:not(.sc) .burger i:nth-child(1){top:19px;transform:rotate(45deg)}
-.app:not(.sc) .burger i:nth-child(2){opacity:0}
-.app:not(.sc) .burger i:nth-child(3){top:19px;transform:rotate(-45deg)}
-.bar .bb{display:none;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.01em;animation:fade .3s}
-.bar .bb .app-icon{width:28px;height:28px;border-radius:8px;font-size:16px;margin:0;box-shadow:none}
-.app.sc .bar .bb{display:flex}
+.edge{display:none}
 .scrim{display:none}
 
 /* sidebar entrance */
@@ -567,11 +553,11 @@ a.btn.primary{color:#fff}
   .week{grid-template-columns:repeat(7,minmax(0,1fr))}
   .icons{grid-template-columns:repeat(6,minmax(0,1fr))}
   .fchips{margin:0 0 14px;padding:2px 0}
-  .bar{display:flex}
   .app:before{position:absolute}
-  .main{height:100vh;height:100dvh;padding:0 14px calc(36px + env(safe-area-inset-bottom))}
-  .bar{margin:0 -14px 8px;padding:0 14px;height:56px}
-  .bar .bb{display:flex}
+  .main{height:100vh;height:100dvh;padding:20px 14px calc(36px + env(safe-area-inset-bottom))}
+  .edge{display:block;position:fixed;left:0;top:50%;width:12px;height:64px;margin-top:-32px;z-index:60;border-radius:0 10px 10px 0;background:color-mix(in srgb,var(--accent) 60%,transparent);box-shadow:0 2px 8px rgba(52,120,246,.35);opacity:.75}
+  .app:not(.sc) .edge{display:none}
+  .side.drag,.scrim.drag{transition:none!important}
 
   .side{position:fixed;left:0;top:0;bottom:0;width:min(300px,84vw);z-index:80;background:var(--panel);border-right:1px solid var(--line);box-shadow:0 0 60px rgba(0,0,0,.35);transform:translateX(0);transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .38s;padding-top:env(safe-area-inset-top)}
   .side-in{width:100%;padding:14px 12px calc(20px + env(safe-area-inset-bottom))}
@@ -960,6 +946,7 @@ function render() {
   $('#root').innerHTML = `
   <div class="app ${SB_CLOSED && IS_MOB() ? 'sc' : ''} ${enter ? 'ent' : ''}">
     <div class="scrim" data-act="toggleSb"></div>
+    <button class="edge" data-act="toggleSb" aria-label="Open menu"></button>
     <aside class="side"><div class="side-in">
       <div class="brand"><span class="app-icon">${ic('logo')}</span><span class="bt"><b>TMS</b><small>Task Management System</small></span></div>
       ${nav('dashboard', 'home', 'Dashboard', '#3478f6')}
@@ -980,11 +967,12 @@ function render() {
         <button class="btn sm" data-act="logout">${ic('out')}<span>Sign out</span></button>
       </div>
     </div></aside>
-    <main class="main ${enter ? 'enter' : ''}"><div class="bar"><button class="burger" data-act="toggleSb" aria-label="Toggle menu"><i></i><i></i><i></i></button><span class="bb"><span class="app-icon">${ic('logo')}</span>TMS</span></div>${({ dashboard: vDash, tasks: vTasks, projects: vProjects, notes: vNotes, keep: vKeep, vault: vVault, inbox: vInbox })[U.view]()}<footer class="foot">Created by <b>Eiman Hakimy</b></footer></main>
+    <main class="main ${enter ? 'enter' : ''}">${({ dashboard: vDash, tasks: vTasks, projects: vProjects, notes: vNotes, keep: vKeep, vault: vVault, inbox: vInbox })[U.view]()}<footer class="foot">Created by <b>Eiman Hakimy</b></footer></main>
   </div>`;
   renderModal(); hydrate();
   $$('.side-in > *').forEach((e, i) => e.style.setProperty('--k', i));
   if (enter) countUp();
+  if (enter && IS_MOB() && lsGet('tms.hint') !== '1') { lsSet('tms.hint', '1'); setTimeout(() => toast('Swipe right', 'Slide your finger to the right to open the menu.', 'bolt', '#3478f6'), 1400); }
 }
 let fresh = true;
 const IS_MOB = () => window.matchMedia('(max-width:760px)').matches;
@@ -1491,6 +1479,52 @@ const A = {
   }
 };
 document.addEventListener('change', e => { const t = e.target; if (!t || !t.dataset || !t.dataset.cal) return; if (t.dataset.cal === 'm') CAL.m = +t.value; else CAL.y = +t.value; CAL.sel = null; calRefresh(); });
+/* ---------- Swipe to open / close the menu (phones) ---------- */
+(function () {
+  let x0 = 0, y0 = 0, t0 = 0, mode = '', base = 0, cur = 0, W = 300;
+  const full = () => W * 1.06;
+  const sideEl = () => $('.side'), scrimEl = () => $('.scrim');
+  const place = x => {
+    const sd = sideEl(), sc = scrimEl(); if (!sd) return;
+    sd.classList.add('drag'); sd.style.transform = `translateX(${x}px)`;
+    if (sc) { sc.classList.add('drag'); sc.style.opacity = String(Math.max(0, Math.min(1, 1 + x / W))); sc.style.pointerEvents = 'none'; }
+  };
+  const settle = open => {
+    SB_CLOSED = !open;
+    const sd = sideEl(), sc = scrimEl(), a = $('.app'); if (!a) return;
+    [sd, sc].forEach(e => { if (e) e.classList.remove('drag'); });
+    requestAnimationFrame(() => {
+      if (sd) sd.style.transform = '';
+      if (sc) { sc.style.opacity = ''; sc.style.pointerEvents = ''; }
+      a.classList.toggle('sc', !open);
+    });
+  };
+  const sideways = el => { for (; el && el !== document.body; el = el.parentElement) { const c = getComputedStyle(el); if ((c.overflowX === 'auto' || c.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 2) return true; } return false; };
+  document.addEventListener('touchstart', e => {
+    mode = ''; if (!IS_MOB() || e.touches.length !== 1 || !$('.app')) return;
+    const t = e.target; if (t.closest && t.closest('input,textarea,select,[contenteditable],.overlay,#lightbox .lb')) return;
+    const closed = $('.app').classList.contains('sc'); if (closed && sideways(t)) return;
+    const p = e.touches[0]; x0 = p.clientX; y0 = p.clientY; t0 = Date.now(); W = Math.min(300, innerWidth * .84); base = closed ? -full() : 0; mode = 'pending';
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!mode || mode === 'ignore') return;
+    const p = e.touches[0], dx = p.clientX - x0, dy = p.clientY - y0, closed = base < 0;
+    if (mode === 'pending') {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      mode = (Math.abs(dx) > Math.abs(dy) * 1.5 && ((closed && dx > 0) || (!closed && dx < 0))) ? 'drag' : 'ignore';
+      if (mode === 'ignore') return;
+    }
+    if (e.cancelable) e.preventDefault();
+    cur = Math.max(-full(), Math.min(0, base + dx)); place(cur);
+  }, { passive: false });
+  const end = e => {
+    if (mode !== 'drag') { mode = ''; return; }
+    const dx = (e.changedTouches ? e.changedTouches[0].clientX : x0) - x0, v = dx / Math.max(1, Date.now() - t0);
+    mode = ''; settle(v > .4 ? true : v < -.4 ? false : cur > -W * .5);
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', () => { if (mode === 'drag') settle(base === 0); mode = ''; }, { passive: true });
+})();
 /* ---------- Motion: tilt, spotlight, ripple ---------- */
 (function () {
   const fine = window.matchMedia('(hover:hover) and (pointer:fine)'), calm = window.matchMedia('(prefers-reduced-motion:reduce)');
