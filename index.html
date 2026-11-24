@@ -415,7 +415,7 @@ a.btn.primary{color:#fff}
 /* =====================================================================
    v2 — collapsible sidebar, mobile layout, creative cards & motion
    ===================================================================== */
-.app{--sw:240px;grid-template-columns:var(--sw) 1fr;height:100vh;height:100dvh;position:relative;overflow:hidden;transition:grid-template-columns .4s cubic-bezier(.4,0,.2,1)}
+.app{--sw:240px;grid-template-columns:var(--sw) 1fr;height:100vh;height:100dvh;position:relative;overflow:hidden;}
 .app.sc{--sw:0px}
 .app:before{content:"";position:fixed;inset:-25%;z-index:0;pointer-events:none;background:radial-gradient(38% 34% at 18% 18%,rgba(52,120,246,.17),transparent 70%),radial-gradient(34% 34% at 82% 28%,rgba(139,92,246,.15),transparent 70%),radial-gradient(40% 40% at 60% 92%,rgba(20,163,168,.13),transparent 70%);}
 .side,.main{position:relative;z-index:1}
@@ -425,10 +425,9 @@ a.btn.primary{color:#fff}
 .app.sc .side{border-right-color:transparent}
 .brand{padding:2px 8px 16px}
 .brand small{display:block;font-size:10.5px;font-weight:500;color:var(--faint);white-space:nowrap}
-.main{padding-top:0}
 
 /* top bar with burger (in normal flow, no floating button) */
-.bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;height:58px;margin:0 -34px 8px;padding:0 34px;background:var(--bg)}
+.bar{position:sticky;top:0;z-index:30;display:none;align-items:center;gap:12px;height:58px;margin:0 -34px 8px;padding:0 34px;background:var(--bg)}
 .burger{flex:none;position:relative;width:40px;height:40px;border-radius:12px;background:var(--panel);border:1px solid var(--line);box-shadow:0 1px 2px rgba(20,20,40,.06);transition:background .2s,border-color .2s,transform .2s}
 .burger:hover{border-color:var(--accent);background:var(--accent-soft)}
 .burger:active{transform:scale(.94)}
@@ -556,8 +555,19 @@ a.btn.primary{color:#fff}
   .hero-r{display:none}
 }
 @media (max-width:760px){
-  html,body{overflow-x:hidden}
-  .app{grid-template-columns:1fr!important;display:block}
+  html,body{height:100%;overflow:hidden;overscroll-behavior:none;max-width:100%}
+  body{position:fixed;inset:0;width:100%;touch-action:pan-y pinch-zoom}
+  .app{position:fixed;inset:0;width:100%;max-width:100%;grid-template-columns:1fr!important;display:block;overflow:hidden}
+  .main{overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;overflow-wrap:anywhere;max-width:100%}
+  .main>*,.main .box,.main .card,.main .row,.main .col{min-width:0;max-width:100%}
+  .main img,.main svg,.main video,.main canvas,.main iframe{max-width:100%}
+  .main pre,.main code{white-space:pre-wrap;overflow-wrap:anywhere}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ptiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .week{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .icons{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .fchips{margin:0 0 14px;padding:2px 0}
+  .bar{display:flex}
   .app:before{position:absolute}
   .main{height:100vh;height:100dvh;padding:0 14px calc(36px + env(safe-area-inset-bottom))}
   .bar{margin:0 -14px 8px;padding:0 14px;height:56px}
@@ -597,8 +607,9 @@ a.btn.primary{color:#fff}
   .stat-l{flex-wrap:wrap;gap:4px}
   .delta{font-size:10.5px;padding:1px 7px}
   .stat .mini{font-size:10.5px}
-  .grid2,.board,.two{grid-template-columns:1fr}
-  .pgrid,.vgrid,.fgrid{grid-template-columns:1fr}
+  .grid2,.board,.two{grid-template-columns:minmax(0,1fr)}
+  .pgrid,.vgrid,.fgrid{grid-template-columns:minmax(0,1fr)}
+  .notes{grid-template-columns:minmax(0,1fr)}
   .kgrid{columns:1}
   .box{padding:15px;border-radius:18px}
   .week{gap:4px}
@@ -910,7 +921,7 @@ function render() {
   const un = S.log.filter(x => !x.read).length;
   const nav = (v, icn, label, color, c) => `<button class="nav ${U.view === v && !(v === 'tasks' && U.project) ? 'on' : ''}" data-act="nav" data-v="${v}">${glyph(icn, color)}<span>${label}</span>${c != null ? `<em class="cnt">${c}</em>` : ''}</button>`;
   $('#root').innerHTML = `
-  <div class="app ${SB_CLOSED ? 'sc' : ''} ${enter ? 'ent' : ''}">
+  <div class="app ${SB_CLOSED && IS_MOB() ? 'sc' : ''} ${enter ? 'ent' : ''}">
     <div class="scrim" data-act="toggleSb"></div>
     <aside class="side"><div class="side-in">
       <div class="brand"><span class="app-icon">${ic('logo')}</span><span class="bt"><b>TMS</b><small>Task Management System</small></span></div>
@@ -940,8 +951,8 @@ function render() {
 }
 let fresh = true;
 const IS_MOB = () => window.matchMedia('(max-width:760px)').matches;
-let SB_CLOSED = IS_MOB() ? true : lsGet('tms.sb') === 'c';
-window.matchMedia('(max-width:760px)').addEventListener('change', e => { SB_CLOSED = e.matches ? true : lsGet('tms.sb') === 'c'; const a = $('.app'); if (a) a.classList.toggle('sc', SB_CLOSED); });
+let SB_CLOSED = IS_MOB();
+window.matchMedia('(max-width:760px)').addEventListener('change', e => { SB_CLOSED = e.matches; const a = $('.app'); if (a) a.classList.toggle('sc', e.matches); });
 
 /* ---------- Login ---------- */
 let authMode = 'login';
@@ -1294,7 +1305,7 @@ const A = {
   zoom(el) { const u = urls[el.dataset.fid]; if (u) $('#lightbox').innerHTML = `<div class="lb" data-act="closeLb"><img src="${u}" alt=""></div>`; },
   closeLb() { $('#lightbox').innerHTML = ''; },
   pickTaskImg() { $('#imgpick').click(); },
-  toggleSb() { SB_CLOSED = !SB_CLOSED; if (!IS_MOB()) lsSet('tms.sb', SB_CLOSED ? 'c' : 'o'); const a = $('.app'); if (a) a.classList.toggle('sc', SB_CLOSED); },
+  toggleSb() { if (!IS_MOB()) return; SB_CLOSED = !SB_CLOSED; const a = $('.app'); if (a) a.classList.toggle('sc', SB_CLOSED); },
   addGcal() { gcalAdd(S.tasks.find(x => x.id === S.ui.detail)); }, exportIcs,
   exportData, googleLogin, gSync() { return (gStatus === 'ok' || gStatus === 'busy') ? gPush() : gReconnect(); },
   pickImport() { $('#restorepick').click(); },
