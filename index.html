@@ -650,6 +650,43 @@ a.btn.primary{color:#fff}
 @media (hover:none){
   .stat:hover,.prj:hover,.card:hover{transform:none}
 }
+
+/* ---------- full month calendar ---------- */
+.cal-h{display:flex;align-items:center;gap:6px;margin-bottom:12px}
+.cal-h select{width:auto;flex:1 1 0;min-width:0;padding:7px 10px;font-weight:650;background:var(--fill);cursor:pointer}
+.cal-h select[data-cal=y]{flex:0 0 86px}
+.cal-h .btn.sm{flex:none;height:34px;padding:0 12px}
+.cnav{width:34px;height:34px;flex:none;border-radius:10px;background:var(--fill);font-size:24px;line-height:1;display:grid;place-items:center;color:var(--sub);padding-bottom:3px;transition:background .15s,color .15s,transform .15s}
+.cnav:hover{background:var(--accent-soft);color:var(--accent)}
+.cnav:active{transform:scale(.9)}
+.cwk,.cgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cwk span{text-align:center;font-size:10.5px;font-weight:650;color:var(--faint);text-transform:uppercase;padding:2px 0 6px}
+.cgrid{animation:cswap .28s cubic-bezier(.2,.8,.2,1) both}
+@keyframes cswap{from{opacity:0;transform:translateY(6px)}}
+.cd{position:relative;aspect-ratio:1/1.02;border-radius:12px;background:var(--fill);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:1.5px solid transparent;transition:transform .15s,background .15s,border-color .15s}
+.cd b{font-size:14px;font-weight:650;line-height:1}
+.cd .dots{display:flex;gap:2px;height:6px;align-items:center}
+.cd .dots i{width:6px;height:6px;border-radius:50%}
+.cd em{position:absolute;top:3px;right:5px;font-style:normal;font-size:9px;font-weight:700;color:var(--accent)}
+.cd.out{background:transparent;opacity:.38}
+.cd.has{background:color-mix(in srgb,var(--accent) 9%,var(--panel))}
+.cd:hover{transform:translateY(-2px);border-color:var(--accent);opacity:1}
+.cd.od b{color:#e5484d}
+.cd.now{background:linear-gradient(160deg,#5b9bff,#3358e8);box-shadow:0 6px 14px rgba(52,120,246,.3);opacity:1}
+.cd.now b,.cd.now em{color:#fff}
+.cd.now .dots i{box-shadow:0 0 0 1.5px #4a7fee}
+.cd.sel{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.cal-p{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.cal-p h4{font-size:13px;font-weight:650;margin-bottom:8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.cal-p h4 small{color:var(--faint);font-weight:500;white-space:nowrap}
+.cal-list{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto;overscroll-behavior:contain}
+.up b.strike{text-decoration:line-through;color:var(--faint)}
+@media (max-width:760px){
+  .cd b{font-size:13px}
+  .cd{border-radius:10px}
+  .cal-h select{padding:7px 6px}
+  .cal-h select[data-cal=y]{flex-basis:76px}
+}
 </style>
 </head>
 <body>
@@ -1012,15 +1049,41 @@ const ring = (pct, size, sw, color, track = 'rgba(120,120,128,.2)') => {
   const r = (size - sw) / 2, c = 2 * Math.PI * r;
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg)"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${track}" stroke-width="${sw}"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" class="rg" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - pct / 100)}" style="--full:${c}"/></svg>`;
 };
+let CAL = { y: new Date().getFullYear(), m: new Date().getMonth(), sel: null };
+function calHtml() {
+  const td = today(), pad = n => String(n).padStart(2, '0'), by = {};
+  S.tasks.forEach(t => { if (t.due) (by[t.due] = by[t.due] || []).push(t); });
+  const { y, m } = CAL, off = (new Date(y, m, 1).getDay() + 6) % 7, mk = `${y}-${pad(m + 1)}`, nowY = new Date().getFullYear();
+  const wk = [...Array(7)].map((_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(LOC, { weekday: 'short' }));
+  const months = [...Array(12)].map((_, i) => new Date(2024, i, 1).toLocaleDateString(LOC, { month: 'long' }));
+  const yrs = []; for (let v = Math.min(y, nowY - 3); v <= Math.max(y, nowY + 6); v++) yrs.push(v);
+  const cells = [...Array(42)].map((_, i) => {
+    const d = new Date(y, m, 1 - off + i), k = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, ts = by[k] || [];
+    const od = ts.some(t => t.status !== 'done' && k < td);
+    return `<button type="button" class="cd ${d.getMonth() !== m ? 'out' : ''} ${k === td ? 'now' : ''} ${CAL.sel === k ? 'sel' : ''} ${ts.length ? 'has' : ''} ${od ? 'od' : ''}" data-act="calPick" data-k="${k}" title="${esc(ts.map(t => t.title).join(', '))}"><b>${d.getDate()}</b><span class="dots">${ts.slice(0, 3).map(t => `<i style="background:${STATUS[t.status][2]}"></i>`).join('')}</span>${ts.length > 3 ? `<em>+${ts.length - 3}</em>` : ''}</button>`;
+  }).join('');
+  const inMonth = S.tasks.filter(t => t.due && t.due.startsWith(mk)).sort((a, b) => a.due.localeCompare(b.due) || PRI_W[a.priority] - PRI_W[b.priority]);
+  const list = CAL.sel ? (by[CAL.sel] || []) : inMonth;
+  const head = CAL.sel ? new Date(CAL.sel + 'T00:00').toLocaleDateString(LOC, { weekday: 'long', day: 'numeric', month: 'long' }) : 'Due in ' + months[m] + ' ' + y;
+  const row = t => `<div class="up" data-act="openTask" data-id="${t.id}"><span class="ud" style="--c:${STATUS[t.status][2]}">${fmtD(t.due)}</span><b class="${t.status === 'done' ? 'strike' : ''}">${esc(t.title)}</b><span class="pri p-${t.priority} nodot">${PRI[t.priority]}</span></div>`;
+  const empty = `<div class="cal-empty"><svg viewBox="0 0 64 64" width="52" height="52" fill="none"><rect x="8" y="12" width="48" height="44" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2.5"/><path d="M8 26h48" stroke="var(--accent)" stroke-width="2.5"/><path d="M20 6v10M44 6v10" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M23 40l7 7 12-14" stroke="#22c55e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg><b>${CAL.sel ? 'Nothing due this day' : 'No deadlines this month'}</b><small>Add a due date to a task and it appears here.</small></div>`;
+  return `<h3>${ic('cal')} Calendar<em class="h3n">${inMonth.length} due in ${months[m].slice(0, 3)}</em></h3>
+  <div class="cal-h"><button type="button" class="cnav" data-act="calStep" data-d="-1" aria-label="Previous month">‹</button>
+    <select data-cal="m" aria-label="Month">${months.map((n, i) => `<option value="${i}" ${i === m ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <select data-cal="y" aria-label="Year">${yrs.map(v => `<option value="${v}" ${v === y ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <button type="button" class="cnav" data-act="calStep" data-d="1" aria-label="Next month">›</button>
+    <button type="button" class="btn sm" data-act="calToday">Today</button></div>
+  <div class="cwk">${wk.map(w => `<span>${w}</span>`).join('')}</div>
+  <div class="cgrid">${cells}</div>
+  <div class="cal-p"><h4>${head}<small>${list.length} task${list.length === 1 ? '' : 's'}</small></h4><div class="cal-list">${list.length ? list.map(row).join('') : empty}</div></div>`;
+}
+function calRefresh() { const b = $('#calbox'); if (b) b.innerHTML = calHtml(); }
 function vDash() {
   const T = S.tasks, n = s => T.filter(t => t.status === s).length, total = T.length || 1;
   const pct = Math.round(n('done') / total * 100), open = T.filter(t => t.status !== 'done'), lateN = T.filter(late).length, td = today();
   const bk = (S.tasks.length + S.notes.length + S.vault.length + S.projects.length > 2) && (!S.lastBackup || Date.now() - S.lastBackup > 7 * 864e5);
   const focus = open.filter(t => late(t) || t.due === td || t.priority === 'high' || t.status === 'prog').sort((a, b) => (late(b) - late(a)) || sortTasks(a, b)).slice(0, 6);
   const trow = t => `<div class="row" data-act="openTask" data-id="${t.id}">${tile(STATUS[t.status][1], STATUS[t.status][2])}<div class="t"><b>${esc(t.title)}</b><small>${proj(t.projectId) ? esc(proj(t.projectId).name) : 'No project'}${t.due ? ' · ' + (late(t) ? 'Overdue ' : 'Due ') + fmtD(t.due) : ''}${t.remind ? ' · Reminder ' + fmtDT(t.remind) : ''}</small></div><span class="pri p-${t.priority}">${PRI[t.priority]}</span></div>`;
-  const days = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() + i); const k = d.toLocaleDateString('sv-SE'); return { w: d.toLocaleDateString(LOC, { weekday: 'short' }), n: d.getDate(), m: d.toLocaleDateString(LOC, { month: 'short' }), ts: open.filter(t => (t.due || '') === k), now: i === 0 }; });
-  const upc = open.filter(t => t.due && t.due >= td).sort((a, b) => a.due.localeCompare(b.due)).slice(0, 3);
-  const calEmpty = `<div class="cal-empty"><svg viewBox="0 0 64 64" width="56" height="56" fill="none"><rect x="8" y="12" width="48" height="44" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2.5"/><path d="M8 26h48" stroke="var(--accent)" stroke-width="2.5"/><path d="M20 6v10M44 6v10" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M23 40l7 7 12-14" stroke="#22c55e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg><b>No deadlines coming up</b><small>Add a due date to a task and it appears here.</small></div>`;
   const pc = k => open.filter(t => t.priority === k).length;
   const stat = (l, v, icn, col, m, i) => { const sh = Math.round(v / total * 100), sr = series(m), dl = sr[sr.length - 1] - sr[0]; return `<div class="box stat anim tilt" style="--c:${col};--i:${i}" data-act="nav" data-v="tasks"><div class="stat-top">${tile(icn, col)}<b data-count="${v}">${v}</b></div><div class="stat-l"><span class="l">${l}</span><em class="delta ${dl > 0 ? 'up' : dl < 0 ? 'dn' : ''}">${dl > 0 ? '▲' : dl < 0 ? '▼' : '•'} ${Math.abs(dl)} <small>7d</small></em></div>${spark(sr, col)}<div class="mini"><div class="bar"><i style="width:${sh}%"></i></div>${sh}% of all</div></div>`; };
   return `
@@ -1044,7 +1107,7 @@ function vDash() {
   <div class="grid2">
     <div class="box anim" style="--i:5"><h3>${ic('bolt')} Your focus</h3>${focus.length ? focus.map(trow).join('') : '<div class="empty">Nothing urgent. Nice!</div>'}</div>
     <div style="display:flex;flex-direction:column;gap:16px">
-      <div class="box anim" style="--i:6"><h3>${ic('cal')} Next 7 days<em class="h3n">${days.reduce((n, d) => n + d.ts.length, 0)} due</em></h3><div class="week">${days.map((d, i) => `<div class="day ${d.now ? 'now' : ''} ${d.ts.length ? 'has' : ''}" style="--i:${i}" title="${esc(d.ts.map(t => t.title).join(', '))}"><small>${d.w}</small><b>${d.n}</b><em>${d.m}</em><div class="dots">${d.ts.slice(0, 3).map(t => `<i style="background:${STATUS[t.status][2]}"></i>`).join('') || '<i class="nil"></i>'}</div>${d.ts.length > 3 ? `<span class="more">+${d.ts.length - 3}</span>` : ''}</div>`).join('')}</div><div class="upc">${upc.length ? upc.map(t => `<div class="up" data-act="openTask" data-id="${t.id}"><span class="ud" style="--c:${STATUS[t.status][2]}">${fmtD(t.due)}</span><b>${esc(t.title)}</b><span class="pri p-${t.priority} nodot">${PRI[t.priority]}</span></div>`).join('') : calEmpty}</div></div>
+      <div class="box anim cal" id="calbox" style="--i:6">${calHtml()}</div>
       <div class="box anim" style="--i:7"><h3>${ic('flag')} By priority<em class="h3n">${open.length} open</em></h3><div class="stack ${open.length ? '' : 'nil'}">${[['high', '#e5484d'], ['med', '#d98a0b'], ['low', '#2f9e6b']].map(([k, c]) => pc(k) ? `<i style="flex:${pc(k)};background:${c}"></i>` : '').join('')}</div><div class="ptiles">${[['high', '#e5484d'], ['med', '#d98a0b'], ['low', '#2f9e6b']].map(([k, c], i) => `<div class="pt" style="--c:${c};--i:${i}"><span class="pv" data-count="${pc(k)}">${pc(k)}</span><span class="pl">${PRI[k]}</span><div class="bar"><i style="width:${open.length ? Math.round(pc(k) / open.length * 100) : 0}%"></i></div><small>${open.length ? Math.round(pc(k) / open.length * 100) : 0}% of open</small></div>`).join('')}</div></div>
     </div>
   </div>
@@ -1305,6 +1368,9 @@ const A = {
   zoom(el) { const u = urls[el.dataset.fid]; if (u) $('#lightbox').innerHTML = `<div class="lb" data-act="closeLb"><img src="${u}" alt=""></div>`; },
   closeLb() { $('#lightbox').innerHTML = ''; },
   pickTaskImg() { $('#imgpick').click(); },
+  calStep(el) { let m = CAL.m + (+el.dataset.d), y = CAL.y; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } CAL.y = y; CAL.m = m; CAL.sel = null; calRefresh(); },
+  calToday() { const n = new Date(); CAL = { y: n.getFullYear(), m: n.getMonth(), sel: today() }; calRefresh(); },
+  calPick(el) { const k = el.dataset.k, d = new Date(k + 'T00:00'); if (d.getMonth() !== CAL.m || d.getFullYear() !== CAL.y) { CAL.y = d.getFullYear(); CAL.m = d.getMonth(); } CAL.sel = CAL.sel === k ? null : k; calRefresh(); },
   toggleSb() { if (!IS_MOB()) return; SB_CLOSED = !SB_CLOSED; const a = $('.app'); if (a) a.classList.toggle('sc', SB_CLOSED); },
   addGcal() { gcalAdd(S.tasks.find(x => x.id === S.ui.detail)); }, exportIcs,
   exportData, googleLogin, gSync() { return (gStatus === 'ok' || gStatus === 'busy') ? gPush() : gReconnect(); },
@@ -1424,6 +1490,7 @@ const A = {
     } catch (e) { toast('Microphone unavailable', 'Allow microphone access in your browser.', 'mic', '#e5484d'); }
   }
 };
+document.addEventListener('change', e => { const t = e.target; if (!t || !t.dataset || !t.dataset.cal) return; if (t.dataset.cal === 'm') CAL.m = +t.value; else CAL.y = +t.value; CAL.sel = null; calRefresh(); });
 /* ---------- Motion: tilt, spotlight, ripple ---------- */
 (function () {
   const fine = window.matchMedia('(hover:hover) and (pointer:fine)'), calm = window.matchMedia('(prefers-reduced-motion:reduce)');
